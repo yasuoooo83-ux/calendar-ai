@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>カレンダーAI（Gemini版）</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700&family=Space+Mono:wght@400;700&display=swap');
+
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a22;
+    --surface2: #22222e;
+    --border: #2e2e3e;
+    --accent: #4285f4;
+    --accent2: #34a853;
+    --success: #34a853;
+    --warn: #fbbc04;
+    --error: #ea4335;
+    --text: #e8e8f0;
+    --text2: #888899;
+    --text3: #555566;
+    --font-main: 'Noto Sans JP', sans-serif;
+    --font-mono: 'Space Mono', monospace;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-main); min-height: 100vh; display: flex; flex-direction: column; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 100; }
+  .logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 14px; letter-spacing: .05em; }
+  .logo-icon { width: 32px; height: 32px; background: linear-gradient(135deg,#4285f4,#34a853); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; }
+  .status-bar { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--text2); }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text3); transition: background .3s, box-shadow .3s; }
+  .status-dot.on { background: var(--success); box-shadow: 0 0 6px var(--success); }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 340px; height: calc(100vh - 61px); }
+
+  .chat-panel { display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+
+  .message { display: flex; gap: 12px; animation: fadeUp .3s ease; }
+  .message.user { flex-direction: row-reverse; }
+  @keyframes fadeUp { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  .avatar { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+  .avatar.ai { background: linear-gradient(135deg,#4285f4,#34a853); }
+  .avatar.user { background: var(--surface2); border: 1px solid var(--border); }
+
+  .bubble { max-width: 78%; padding: 12px 16px; border-radius: var(--radius); font-size: 14px; line-height: 1.7; }
+  .message.ai .bubble { background: var(--surface2); border: 1px solid var(--border); border-top-left-radius: 4px; }
+  .message.user .bubble { background: linear-gradient(135deg,#1a3560,#0d3020); border: 1px solid #1e4a30; border-top-right-radius: 4px; }
+
+  .event-card { margin-top: 12px; background: var(--bg); border: 1px solid var(--accent); border-radius: 10px; padding: 14px 16px; font-size: 13px; }
+  .event-card-header { font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: .1em; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  .event-card-title { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+  .event-card-row { display: flex; align-items: center; gap: 8px; color: var(--text2); margin-bottom: 4px; font-size: 13px; }
+  .event-card-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+  .btn-confirm { flex: 1; padding: 9px; background: linear-gradient(135deg,#4285f4,#34a853); color: #fff; border: none; border-radius: 8px; font-family: var(--font-main); font-size: 13px; font-weight: 500; cursor: pointer; transition: opacity .2s; }
+  .btn-confirm:hover { opacity: .85; }
+  .btn-cancel { padding: 9px 16px; background: transparent; color: var(--text2); border: 1px solid var(--border); border-radius: 8px; font-family: var(--font-main); font-size: 13px; cursor: pointer; transition: border-color .2s; }
+  .btn-cancel:hover { border-color: var(--error); color: var(--error); }
+
+  .chat-input-area { padding: 16px 24px; border-top: 1px solid var(--border); background: var(--surface); }
+  .quick-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .chip { padding: 5px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; font-size: 12px; color: var(--text2); cursor: pointer; transition: all .15s; white-space: nowrap; }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  .input-row { display: flex; gap: 10px; align-items: flex-end; }
+  textarea { flex: 1; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; color: var(--text); font-family: var(--font-main); font-size: 14px; resize: none; min-height: 44px; max-height: 120px; outline: none; transition: border-color .2s; line-height: 1.5; }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--text3); }
+
+  .send-btn { width: 44px; height: 44px; background: linear-gradient(135deg,#4285f4,#34a853); border: none; border-radius: 10px; color: #fff; font-size: 18px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: opacity .2s,transform .1s; flex-shrink: 0; }
+  .send-btn:hover { opacity: .9; transform: scale(1.05); }
+  .send-btn:active { transform: scale(.97); }
+
+  .sidebar { display: flex; flex-direction: column; background: var(--surface); overflow-y: auto; }
+  .sidebar-section { padding: 18px 20px; border-bottom: 1px solid var(--border); }
+  .sidebar-label { font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em; color: var(--text3); margin-bottom: 14px; }
+  .setting-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+  .setting-label { font-size: 12px; color: var(--text2); }
+
+  input[type="text"], input[type="password"] { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; color: var(--text); font-family: var(--font-main); font-size: 13px; outline: none; width: 100%; transition: border-color .2s; }
+  input:focus { border-color: var(--accent); }
+
+  .google-btn { width: 100%; padding: 10px; background: #fff; color: #3c4043; border: 1px solid #dadce0; border-radius: 8px; font-family: var(--font-main); font-size: 13px; font-weight: 500; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: box-shadow .2s; }
+  .google-btn:hover { box-shadow: 0 2px 8px rgba(0,0,0,.3); }
+  .google-btn svg { width: 18px; height: 18px; }
+
+  .notice { margin-top: 10px; padding: 10px 14px; border-radius: 8px; font-size: 12px; line-height: 1.6; }
+  .notice.info { background: #0d1f3a; border: 1px solid #1a3a6a; color: #6ab0ff; }
+  .notice.ok   { background: #0d2a1a; border: 1px solid #1a4a2a; color: #6abb6a; }
+  .notice.warn { background: #2a1f0a; border: 1px solid #4a3510; color: var(--warn); }
+
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: var(--font-mono); background: #0d2a1a; color: var(--accent2); margin-right: 4px; }
+
+  .event-list { display: flex; flex-direction: column; gap: 8px; }
+  .event-item { padding: 10px 12px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; font-size: 13px; transition: border-color .15s; }
+  .event-item:hover { border-color: var(--accent); }
+  .event-item-title { font-weight: 500; margin-bottom: 3px; }
+  .event-item-time { font-size: 11px; color: var(--text2); font-family: var(--font-mono); }
+  .event-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  .typing { display: flex; gap: 5px; align-items: center; padding: 4px 0; }
+  .typing span { width: 7px; height: 7px; background: var(--text3); border-radius: 50%; animation: bounce 1.2s infinite; }
+  .typing span:nth-child(2){animation-delay:.2s} .typing span:nth-child(3){animation-delay:.4s}
+  @keyframes bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-6px)} }
+
+  @keyframes spin { to{transform:rotate(360deg)} }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">📅</div>
+    <span>CALENDAR AI <span style="color:var(--accent2);font-size:11px;">powered by Gemini</span></span>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot" id="gcalDot"></div>
+    <span id="gcalStatus">カレンダー未接続</span>
+    <span style="color:var(--border)">│</span>
+    <div class="status-dot" id="geminiDot"></div>
+    <span id="geminiStatus">Gemini 未設定</span>
+  </div>
+</header>
+
+<main>
+  <div class="chat-panel">
+    <div class="chat-messages" id="msgs">
+      <div class="message ai">
+        <div class="avatar ai">✨</div>
+        <div class="bubble">
+          こんにちは！Gemini搭載のカレンダーAIです。<br><br>
+          自然な言葉で予定を伝えると、Googleカレンダーに登録します。<br>
+          例：<span class="tag">来週月曜3時間目にITビジネス実習</span><span class="tag">明日15時から職員会議1時間</span><br><br>
+          右側でGemini APIキーを入力し、Googleでサインインしてください。
+        </div>
+      </div>
+    </div>
+    <div class="chat-input-area">
+      <div class="quick-chips">
+        <div class="chip" onclick="chip('今日の')">📌 今日</div>
+        <div class="chip" onclick="chip('明日の')">📌 明日</div>
+        <div class="chip" onclick="chip('来週月曜に')">📌 来週月曜</div>
+        <div class="chip" onclick="chip('1時間目に')">🕐 1時間目</div>
+        <div class="chip" onclick="chip('3時間目に')">🕐 3時間目</div>
+        <div class="chip" onclick="chip('授業 ')">📚 授業</div>
+        <div class="chip" onclick="chip('職員会議 ')">👥 職員会議</div>
+        <div class="chip" onclick="chip('保護者面談 ')">👨‍👩‍👧 面談</div>
+        <div class="chip" onclick="chip('テスト採点 ')">📝 採点</div>
+      </div>
+      <div class="input-row">
+        <textarea id="inp" placeholder="「来週水曜3時間目にITビジネス実習、教室B-302」のように入力..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="send-btn" onclick="send()">➤</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="sidebar">
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">✨ GEMINI API KEY</div>
+      <div class="setting-row">
+        <div class="setting-label">APIキー &nbsp;<a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent);font-size:11px;">Google AI Studio で取得 →</a></div>
+        <input type="password" id="geminiKey" placeholder="AIza..." oninput="checkGemini()" />
+      </div>
+      <div class="notice info">💡 Gemini 1.5 Flash は無料枠あり（1日1,500リクエスト）。クレジットカード不要。</div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">📅 GOOGLE CALENDAR</div>
+      <div class="setting-row">
+        <div class="setting-label">OAuth Client ID &nbsp;<a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent);font-size:11px;">GCP Console で取得 →</a></div>
+        <input type="text" id="clientId" placeholder="xxx.apps.googleusercontent.com" />
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">カレンダーID（省略→primary）</div>
+        <input type="text" id="calId" value="primary" />
+      </div>
+      <button class="google-btn" onclick="connectGoogle()">
+        <svg viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.2l6.7-6.7C35.7 2.5 30.2 0 24 0 14.7 0 6.7 5.5 2.8 13.5l7.8 6.1C12.4 13 17.8 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v8.5h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17z"/><path fill="#FBBC05" d="M10.6 28.4A14.9 14.9 0 0 1 9.5 24c0-1.5.2-3 .6-4.4L2.3 13.5A23.9 23.9 0 0 0 0 24c0 3.8.9 7.4 2.5 10.6l8.1-6.2z"/><path fill="#34A853" d="M24 48c6.2 0 11.4-2 15.2-5.5l-7.5-5.8c-2 1.4-4.6 2.2-7.7 2.2-6.2 0-11.4-4.2-13.3-9.9l-8 6.2C6.5 42.5 14.6 48 24 48z"/></svg>
+        Googleでサインイン
+      </button>
+      <div class="notice ok" id="gcalOk" style="display:none;">✅ Googleカレンダーに接続済みです。</div>
+      <div class="notice warn">⚙ GCPでCalendar APIを有効化し、承認済みオリジンにこのHTMLを開いているURLを追加してください。</div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">🕐 授業時間設定</div>
+      <div id="periodSettings"></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">📋 直近の予定</div>
+      <div class="event-list" id="upcoming">
+        <div style="color:var(--text3);font-size:12px;">接続後に表示されます</div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+// ===== 時間割 =====
+const PERIODS = [
+  {l:'1時間目',s:'08:50',e:'09:40'},
+  {l:'2時間目',s:'09:50',e:'10:40'},
+  {l:'3時間目',s:'10:50',e:'11:40'},
+  {l:'4時間目',s:'11:50',e:'12:40'},
+  {l:'5時間目',s:'13:30',e:'14:20'},
+  {l:'6時間目',s:'14:30',e:'15:20'},
+  {l:'7時間目',s:'15:30',e:'16:20'},
+];
+
+document.getElementById('periodSettings').innerHTML = PERIODS.map((p,i)=>`
+  <div style="display:flex;gap:6px;align-items:center;margin-bottom:6px;font-size:12px;">
+    <span style="color:var(--text2);width:56px;flex-shrink:0;">${p.l}</span>
+    <input type="text" id="ps${i}" value="${p.s}" style="width:52px;padding:5px 6px;font-size:12px;font-family:var(--font-mono);">
+    <span style="color:var(--text3)">〜</span>
+    <input type="text" id="pe${i}" value="${p.e}" style="width:52px;padding:5px 6px;font-size:12px;font-family:var(--font-mono);">
+  </div>`).join('');
+
+function getPeriods(){
+  return PERIODS.map((p,i)=>({label:p.l, start:document.getElementById(`ps${i}`)?.value||p.s, end:document.getElementById(`pe${i}`)?.value||p.e}));
+}
+
+// ===== Gemini key check =====
+function checkGemini(){
+  const k=document.getElementById('geminiKey').value.trim();
+  const ok=k.startsWith('AIza')&&k.length>20;
+  document.getElementById('geminiDot').classList.toggle('on',ok);
+  document.getElementById('geminiStatus').textContent=ok?'Gemini 設定済み':'Gemini 未設定';
+}
+
+// ===== Google OAuth =====
+let token=null;
+function connectGoogle(){
+  const cid=document.getElementById('clientId').value.trim();
+  if(!cid){alert('OAuth Client IDを入力してください。');return;}
+  const s=document.createElement('script');
+  s.src='https://accounts.google.com/gsi/client';
+  s.onload=()=>{
+    const c=google.accounts.oauth2.initTokenClient({
+      client_id:cid,
+      scope:'https://www.googleapis.com/auth/calendar',
+      callback:(r)=>{
+        if(r.error){alert('認証失敗: '+r.error);return;}
+        token=r.access_token;
+        document.getElementById('gcalDot').classList.add('on');
+        document.getElementById('gcalStatus').textContent='カレンダー接続中';
+        document.getElementById('gcalOk').style.display='block';
+        addMsg('ai','✅ Googleカレンダーに接続しました！<br>予定を自然な言葉で入力してください。');
+        loadEvents();
+      }
+    });
+    c.requestAccessToken();
+  };
+  document.head.appendChild(s);
+}
+
+async function loadEvents(){
+  if(!token)return;
+  const cal=encodeURIComponent(document.getElementById('calId').value||'primary');
+  const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${cal}/events?timeMin=${new Date().toISOString()}&maxResults=8&singleEvents=true&orderBy=startTime`,{headers:{Authorization:`Bearer ${token}`}});
+  const d=await r.json();
+  const el=document.getElementById('upcoming');
+  if(!d.items?.length){el.innerHTML='<div style="color:var(--text3);font-size:12px;">直近の予定はありません</div>';return;}
+  const cols=['#4285f4','#34a853','#fbbc04','#ea4335','#46bdc6','#7986cb','#f06292','#ff7043'];
+  el.innerHTML=d.items.map((ev,i)=>{
+    const s=ev.start.dateTime||ev.start.date;
+    const dt=new Date(s);
+    const t=ev.start.dateTime?`${dt.getMonth()+1}/${dt.getDate()} ${dt.getHours()}:${String(dt.getMinutes()).padStart(2,'0')}`:`${dt.getMonth()+1}/${dt.getDate()} 終日`;
+    return `<div class="event-item"><div class="event-item-title"><span class="event-dot" style="background:${cols[i%8]}"></span>${esc(ev.summary||'(無題)')}</div><div class="event-item-time">${t}${ev.location?' · '+ev.location:''}</div></div>`;
+  }).join('');
+}
+
+// ===== Chat =====
+const msgsEl=document.getElementById('msgs');
+function addMsg(role,html){
+  const d=document.createElement('div');
+  d.className=`message ${role}`;
+  d.innerHTML=`<div class="avatar ${role}">${role==='ai'?'✨':'👤'}</div><div class="bubble">${html}</div>`;
+  msgsEl.appendChild(d); msgsEl.scrollTop=msgsEl.scrollHeight; return d;
+}
+function addTyping(){
+  const d=document.createElement('div');
+  d.className='message ai';d.id='typ';
+  d.innerHTML=`<div class="avatar ai">✨</div><div class="bubble"><div class="typing"><span></span><span></span><span></span></div></div>`;
+  msgsEl.appendChild(d);msgsEl.scrollTop=msgsEl.scrollHeight;
+}
+function rmTyping(){document.getElementById('typ')?.remove();}
+
+// ===== Send =====
+async function send(){
+  const ta=document.getElementById('inp');
+  const text=ta.value.trim(); if(!text)return;
+  const key=document.getElementById('geminiKey').value.trim();
+  if(!key){alert('Gemini APIキーを入力してください。');return;}
+
+  addMsg('user',esc(text));
+  ta.value='';autoResize(ta);addTyping();
+
+  const now=new Date();
+  const dayNames=['日','月','火','水','木','金','土'];
+  const today=`${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${dayNames[now.getDay()]}）`;
+  const periods=getPeriods();
+  const pDesc=periods.map(p=>`${p.label}: ${p.start}〜${p.end}`).join('\n');
+
+  const prompt=`あなたは日本の高校の校務カレンダーアシスタントです。
+ユーザーの日本語から予定情報をJSONで抽出してください。
+
+今日: ${today}
+授業時間割:
+${pDesc}
+
+「3時間目」→時間割を使用。「来週月曜」「明後日」等を正確な日付に変換。
+
+JSONのみ返してください（説明文・コードブロック不要）:
+{"title":"予定タイトル","date":"YYYY-MM-DD","startTime":"HH:MM","endTime":"HH:MM","location":"場所（なければ空）","description":"備考（なければ空）","allDay":false,"confidence":0.95,"clarification":null}
+
+allDay予定はallDay:trueでstartTime/endTimeは"00:00"。不明点はclarificationに質問文。
+
+ユーザー入力: ${text}`;
+
+  try{
+    const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.1,maxOutputTokens:512}})
+    });
+    const d=await r.json(); rmTyping();
+    if(d.error){addMsg('ai',`❌ Gemini APIエラー: ${esc(d.error.message)}`);return;}
+    let raw=d.candidates?.[0]?.content?.parts?.[0]?.text||'';
+    raw=raw.replace(/```json|```/g,'').trim();
+    let ev;
+    try{ev=JSON.parse(raw);}
+    catch{addMsg('ai',`解析できませんでした。もう少し具体的に教えてください。<br><small style="color:var(--text3)">${esc(raw.slice(0,100))}</small>`);return;}
+    if(ev.clarification){addMsg('ai',`📋 確認させてください：<br><br>${esc(ev.clarification)}`);return;}
+    showPreview(ev);
+  }catch(err){rmTyping();addMsg('ai',`❌ 通信エラー: ${esc(err.message)}`);}
+}
+
+function showPreview(ev){
+  const timeStr=ev.allDay?'終日':`${ev.startTime} 〜 ${ev.endTime}`;
+  const conf=Math.round((ev.confidence||0.9)*100);
+  const cc=conf>=80?'var(--success)':conf>=50?'var(--warn)':'var(--error)';
+  addMsg('ai',`以下の予定でよろしいですか？
+<div class="event-card">
+  <div class="event-card-header">📅 PREVIEW &nbsp;<span style="color:${cc}">信頼度 ${conf}%</span></div>
+  <div class="event-card-title">${esc(ev.title)}</div>
+  <div class="event-card-row">📆 ${esc(ev.date)}</div>
+  <div class="event-card-row">🕐 ${esc(timeStr)}</div>
+  ${ev.location?`<div class="event-card-row">📍 ${esc(ev.location)}</div>`:''}
+  ${ev.description?`<div class="event-card-row">📝 ${esc(ev.description)}</div>`:''}
+  <div class="event-card-actions">
+    <button class="btn-confirm" onclick='reg(${escA(JSON.stringify(ev))})'>✅ Googleカレンダーに登録</button>
+    <button class="btn-cancel" onclick="this.closest('.message').remove()">✕</button>
+  </div>
+</div>`);
+}
+
+async function reg(ev){
+  if(!token){addMsg('ai','⚠ Googleカレンダーに接続してください。');return;}
+  const cal=encodeURIComponent(document.getElementById('calId').value||'primary');
+  const body=ev.allDay?{
+    summary:ev.title,location:ev.location||'',description:ev.description||'',
+    start:{date:ev.date},end:{date:ev.date}
+  }:{
+    summary:ev.title,location:ev.location||'',description:ev.description||'',
+    start:{dateTime:`${ev.date}T${ev.startTime}:00`,timeZone:'Asia/Tokyo'},
+    end:{dateTime:`${ev.date}T${ev.endTime}:00`,timeZone:'Asia/Tokyo'}
+  };
+  const lm=addMsg('ai','<span class="spinner"></span>Googleカレンダーに登録中...');
+  try{
+    const r=await fetch(`https://www.googleapis.com/calendar/v3/calendars/${cal}/events`,{
+      method:'POST',
+      headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    const d=await r.json(); lm.remove();
+    if(d.id){
+      addMsg('ai',`✅ <strong>${esc(ev.title)}</strong> を登録しました！<br><a href="${d.htmlLink}" target="_blank" style="color:var(--accent);font-size:13px;">Googleカレンダーで確認 →</a>`);
+      loadEvents();
+    }else{addMsg('ai',`❌ 登録失敗: ${JSON.stringify(d.error)}`);}
+  }catch(err){lm.remove();addMsg('ai',`❌ 通信エラー: ${esc(err.message)}`);}
+}
+
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escA(s){return s.replace(/'/g,'&#39;');}
+function handleKey(e){if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}}
+function autoResize(el){el.style.height='auto';el.style.height=Math.min(el.scrollHeight,120)+'px';}
+function chip(t){const ta=document.getElementById('inp');const p=ta.selectionStart;ta.value=ta.value.slice(0,p)+t+ta.value.slice(p);ta.focus();ta.selectionStart=ta.selectionEnd=p+t.length;autoResize(ta);}
+</script>
+</body>
+</html>
